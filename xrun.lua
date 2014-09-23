@@ -1,24 +1,26 @@
 -- xrun.lua
--- 24.8.2014 Helmut Gruber, EBCOM.de
--- Released under the MIT Licence
--- Version: 0.1
--- lokales Repository auf Remote Host syncen und
--- dann remote Anwendung starten + lokal in ZBS debuggen
--- Es werden alle Files im aktuellen Verzeichnis auf den 
--- remote Host kopiert.
--- Voraussetzung ist ein funktionierendes automatisches
--- ssh-Login mit Key unter Linux/Mac, unter Windows wird putty automatisch geladen.
+-- Version 0.1: Aug.24 2014. First release Helmut Gruber, EBCOM.de
+-- Version 0.2: Sep.23 2014. Automatic handling of public key transfer
+-- Desc:
+-- Copy your local sources to a remote ( ssh ) host and
+-- run your application remotely - plus debug locally in your ZeroBraneStudio
 --
--- Wichtig: xrun.lua im ZBS mit F6 starten; Debugger Server muss aktiv sein; mobdebug.lua muss verfügbar sein (z.B. im lokalen Verzeichnis)
+-- All files in your local ZBS project path are being copied.
+-- ssh-public-key is esablished automatically ( just enter password twice, and then never again )
 
--- Hier Debugging-Parameter konfigurieren
-local debugging_peer="192.168.178.45"    -- banana pi
-local debugging_user="pi"
-local debugging_pwd="raspberry"
-local debugging_basedir="/home/"..debugging_user.."/lua"
-local debugging_main="test.lua"
+-- Important: start "xrun.lua" in ZBS via F6-key; debugging server has to be active; mobdebug.lua has to be included in your sources.
+-- Important2: Don't edit your source files on the remote host - changes are lost on next run.
 
--- Ab hier nichts mehr aendern...
+
+-- Configure debugging parameters here:
+
+local debugging_peer   = "172.31.255.241"                   -- e.g. my raspberry pi
+local debugging_user   = "pi"
+local debugging_pwd    = "raspberry"
+local debugging_basedir= "/home/"..debugging_user.."/lua"   -- rsync could also do "~/lua", but pscp cannot...
+local debugging_main   = "test.lua"                         -- what to run remotely - your main script!
+
+-- Don't change anything below --
 
 local PUTTY_URL='http://the.earth.li/~sgtatham/putty/latest/x86/putty.exe'
 local PSCP_URL='http://the.earth.li/~sgtatham/putty/latest/x86/pscp.exe'
@@ -59,10 +61,10 @@ if on_windows then
 end
 
 local ssh_client=os.getenv("SSH_CLIENT")
-if ssh_client then
+if ssh_client then -- we are running on the debugging client
   local peer=ssh_client:match("(%d+%.%d+%.%d+%.%d+)")
   require("mobdebug").start(peer); dofile(arg[1])
-else
+else -- we are on our developer machine
   local s="cd "..debugging_basedir..";lua xrun.lua "..debugging_main.. ""
   if on_windows then
     local r=sh("bin\\plink.exe "..debugging_peer.." -batch -l "..debugging_user.." -pw "..debugging_pwd.." mkdir -p "..debugging_basedir )
@@ -81,8 +83,34 @@ else
       end
     end
     
-  else
-    sh("rsync -avz ./ "..debugging_user.."@"..debugging_peer..":"..debugging_basedir.."/")
-    sh("ssh "..debugging_user.."@"..debugging_peer.." 'cd "..debugging_basedir..";lua xrun.lua "..debugging_main.. "' ")
+  else -- not windows: Mac or Linux are fine... have ssh installed and ssh-keygen should have been run - surely of you are a developer ;-)
+    local i=sh("rsync -avz -e \"ssh -oStrictHostKeyChecking=no \" "..debugging_user.."@"..debugging_peer..":~/.ssh/authorized_keys .") -- Maybe you have to enter a password here...
+    local authorized=false
+    if file_exists("authorized_keys") then
+      local fh=io.open("authorized_keys","r")
+      local a=fh:read("*all")
+      fh:close()
+      fh=io.open(os.getenv("HOME").."/.ssh/id_rsa.pub","r")
+      if fh then
+        local i=fh:read("*all")
+        fh:close()
+        local a2,i2=a:gsub("%+",""):gsub("%.",""):gsub("%-",""), i:gsub("%+",""):gsub("%.",""):gsub("%-","")
+        if nil==a2:find(i2) then
+          fh=io.open("authorized_keys","a")
+          fh:write("\n"..i)
+          fh:close()
+        else
+          authorized=true
+        end
+      end
+    else
+      i=sh("cp ~/.ssh/id_rsa.pub authorized_keys")
+    end
+    if not authorized then
+      i=sh("rsync -avz authorized_keys "..debugging_user.."@"..debugging_peer..":~/.ssh/authorized_keys") -- maybe you have to enter the password once again here - for the very last time...
+    end
+    os.remove("authorized_keys") -- we dont need this on the client...
+    sh("rsync -avz ./ "..debugging_user.."@"..debugging_peer..":"..debugging_basedir.."/") -- transfer sources
+    sh("ssh -oStrictHostKeyChecking=no "..debugging_user.."@"..debugging_peer.." 'cd "..debugging_basedir..";lua xrun.lua "..debugging_main.. "' ") -- run your Lua script  on the remote side
   end
 end
