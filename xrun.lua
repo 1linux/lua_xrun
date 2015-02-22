@@ -16,7 +16,7 @@ local debugging_peer="raspberrypi" 												-- e.g. my raspberry pi
 local debugging_user="pi"
 local debugging_pwd="raspberry"
 local debugging_basedir="/home/"..debugging_user.."/lua"
-local debugging_main="ultrasonic_test.lua"									-- what to run remotely - your main script!
+local debugging_main="test.lua"									-- what to run remotely - your main script!
 
 -- Some options
 local LUA="luajit"								-- lua or luajit
